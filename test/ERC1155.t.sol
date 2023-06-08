@@ -8,13 +8,17 @@ import {MockERC1155} from "./utils/mocks/MockERC1155.sol";
 
 import {ERC1155TokenReceiver} from "../src/ERC1155.sol";
 
+import "./lib/YulDeployer.sol";
+
+interface ERC1155{}
+
 contract ERC1155Recipient is ERC1155TokenReceiver {
     address public operator;
     address public from;
     uint256 public id;
     uint256 public amount;
     bytes public mintData;
-
+    
     function onERC1155Received(
         address _operator,
         address _from,
@@ -111,12 +115,20 @@ contract NonERC1155Recipient {}
 contract ERC1155Test is DSTestPlus, ERC1155TokenReceiver {
     MockERC1155 token;
 
-    mapping(address => mapping(uint256 => uint256)) public userMintAmounts;
-    mapping(address => mapping(uint256 => uint256)) public userTransferOrBurnAmounts;
+    YulDeployer yulDeployer = new YulDeployer();
+    ERC1155 erc1155Yul;
 
     function setUp() public {
+        erc1155Yul = ERC1155(yulDeployer.deployContract("ERC1155"));
+        console.log("erc1155Yul: -----> ", address(erc1155Yul));
+
         token = new MockERC1155();
     }
+
+
+
+    mapping(address => mapping(uint256 => uint256)) public userMintAmounts;
+    mapping(address => mapping(uint256 => uint256)) public userTransferOrBurnAmounts;
 
     function testMintToEOA() public {
         token.mint(address(0xBEEF), 1337, 1, "");
