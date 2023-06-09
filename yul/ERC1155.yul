@@ -45,6 +45,14 @@ object "ERC1155"{
 
             /* -------- storage access ---------- */
 
+            function owner() -> o {
+                o := sload(ownerPos())
+            }
+
+            function totalSupply() -> supply {
+                supply := sload(totalSupplyPos())
+            }
+
             function balanceOf(account) -> bal {
                 bal := sload(accountToStorageOffset(account))
             }
@@ -68,9 +76,16 @@ object "ERC1155"{
                     revert(0, 0)
                 }
             }
-
             
+            function decodeAsUint(offset) -> v {
+                let pos := add(4, mul(offset, 0x20))
+                if lt(calldatasize(), add(pos, 0x20)) {
+                    revert(0, 0)
+                }
+                v := calldataload(pos)
+            }
             /* ---------- calldata encoding functions ---------- */
+
             function returnUint(v) {
                 mstore(0, v)
                 return(0, 0x20)
@@ -80,14 +95,15 @@ object "ERC1155"{
             }
 
             /* -------- events ---------- */
+
             function emitTransferSingle(operator,from,to,id,amount) {
                 let signatureHash := 0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62
-                emitTransferEvent(signatureHash,address,address,address,uint256,uint256)
+                emitTransferEvent(signatureHash,operator,from,to,id,amount)
             }
 
             function emitTransferBatch(operator,from,to,ids,amounts) {
                 let signatureHash := 0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb
-                emitTransferEvent(signatureHash,address,address,address,uint256[],uint256[])
+                emitTransferEvent(signatureHash,operator,from,to,ids,amounts)
             }
 
             function emitTransferEvent(signatureHash,indexed1,indexed2,indexed3,ids,amounts){
@@ -96,13 +112,13 @@ object "ERC1155"{
                 log4(0,0x20,signatureHash,indexed1,indexed2,indexed3)
             }
 
-            function emitApprovalForAll(owner,operator,approved) {
-                let signatureHash = 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
-                emitEvent(signatureHash,address,address,bool)
+            function emitApprovalForAll(_owner,operator,approved) {
+                let signatureHash := 0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31
+                emitEvent(signatureHash,_owner,operator,approved)
             }
 
             function emitURI(value, id){
-                let signatureHash = 0x1e7006e7e1807813182bd046558f9f54c45ada88a99785110f4ac900ae6a704d
+                let signatureHash := 0x1e7006e7e1807813182bd046558f9f54c45ada88a99785110f4ac900ae6a704d
                 emitEvent(signatureHash,value,id,0x0)
             }
 
@@ -111,6 +127,26 @@ object "ERC1155"{
                 log3(0, 0x20, signatureHash,indexed1,indexed2)
             }
 
+            /* ---------- utility functions ---------- */
+            function lte(a, b) -> r {
+                r := iszero(gt(a, b))
+            }
+            function gte(a, b) -> r {
+                r := iszero(lt(a, b))
+            }
+            function safeAdd(a, b) -> r {
+                r := add(a, b)
+                if or(lt(r, a), lt(r, b)) { revert(0, 0) }
+            }
+            function calledByOwner() -> cbo {
+                cbo := eq(owner(), caller())
+            }
+            function revertIfZeroAddress(addr) {
+                require(addr)
+            }
+            function require(condition) {
+                if iszero(condition) { revert(0, 0) }
+            }
         }
     }
 }

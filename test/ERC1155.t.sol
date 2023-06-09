@@ -11,7 +11,6 @@ import {ERC1155TokenReceiver} from "../src/ERC1155.sol";
 import "./lib/YulDeployer.sol";
 
 interface ERC1155{}
-
 contract ERC1155Recipient is ERC1155TokenReceiver {
     address public operator;
     address public from;

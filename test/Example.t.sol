@@ -15,6 +15,7 @@ contract ExampleTest is Test {
         exampleContract = Example(yulDeployer.deployContract("Example"));
     }
 
+
     function testExample() public {
         bytes memory callDataBytes = abi.encodeWithSignature("randomBytes()");
 
