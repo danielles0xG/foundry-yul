@@ -45,7 +45,6 @@ object "Token" {
 
             function mint(account, amount) {
                 require(calledByOwner())
-
                 mintTokens(amount)
                 addToBalance(account, amount)
                 emitTransfer(0, account, amount)
@@ -90,7 +89,7 @@ object "Token" {
                 }
                 v := calldataload(pos)
             }
-            
+
             /* ---------- calldata encoding functions ---------- */
             function returnUint(v) {
                 mstore(0, v)

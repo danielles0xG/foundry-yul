@@ -13,13 +13,59 @@ object "ERC1155"{
             require(iszero(callvalue())) // msg.value == 0
            
             switch selector() 
-            // safeTransferFrom(address,address,uint256,uint256,bytes)  
-            case 0xf242432a {
+            case 0xf242432a { // safeTransferFrom(address,address,uint256,uint256,bytes)  
+                require(eq(caller(),decodeAsAddress(0))) 
+                require(iszero(isApprovedForAll(decodeAsAddress(0),decodeAsAddress(1))))
 
+                transferFrom(decodeAsAddress(0), decodeAsAddress(1), decodeAsUint(2))
+                emitTransferSingle(
+                    caller(),
+                    decodeAsAddress(0),
+                    decodeAsAddress(1),
+                    decodeAsUint(2),
+                    decodeAsUint(3)
+                )
+                require(gte(extcodesize(decodeAsAddress(1)),0))
+                revertIfZeroAddress(decodeAsAddress(1))
+                
+                /**
+                    CALL
+                    Stack input
+                        gas: amount of gas to send to the sub context to execute. The gas that is not used by the sub context is returned to this one.
+                        address: the account which context to execute.
+                        value: value in wei to send to the account.
+                        argsOffset: byte offset in the memory in bytes, the calldata of the sub context.
+                        argsSize: byte size to copy (size of the calldata).
+                        retOffset: byte offset in the memory in bytes, where to store the return data of the sub context.
+                        retSize: byte size to copy (size of the return data).
+                */
+                mstore(0x0,0xf23a6e61)
+                mstore(0x20,caller())            // msg.sender
+                mstore(0x40,decodeAsAddress(0))  // from
+                mstore(0x60,decodeAsUint(2))     // id
+                mstore(0x7c,decodeAsUint(3))     // amount
+                mstore(0xa0,decodeAsUint(4))    // bytes
+                // construct calldata of onERC1155Received(msg.sender, from, id, amount, data)
+                require(eq(call(gas(), caller(), 0, 0, 0xa0, 0, 0),0)) // how to read msg bytes 0xf23a6e61 ?))
+                returnTrue()
             }
 
             // safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)
             case 0x2eb2c2d6 {
+                let from := decodeAsAddress(0)
+                let to := decodeAsAddress(1)
+                let posIds := decodeAsUint(2)
+                let posAmounts := decodeAsUint(3)
+                require(or(eq(from, caller()), isApprovedForAll(from, caller())))
+                let lenIds := decodeAsUint(div(posIds, 0x20))
+
+                for { let i := 0 } lt(i, lenIds) { i:= add(i, 1) }
+                {
+                    let ithId := decodeAsUint(_getArrayElementSlot(posIds, i))
+                    let ithAmount := decodeAsAddress(_getArrayElementSlot(posAmounts, i))
+                    
+                    transferFrom(from, to, ithId, ithAmount)
+                }
 
             }
 
@@ -43,6 +89,33 @@ object "ERC1155"{
 
             }
 
+            default {
+                revert(0,0)
+            }
+
+            function transferFrom(from, to, amount) {
+                executeTransfer(from, to, amount)
+            }
+
+            function executeTransfer(from, to, amount) {
+                revertIfZeroAddress(to)
+                deductFromBalance(from, amount)
+                addToBalance(to, amount)
+            }
+
+            /* -------- storage layout ---------- */
+            function ownerPos() -> p { p := 0 }
+            function totalSupplyPos() -> p { p := 1 }
+            function accountToStorageOffset(account) -> offset {
+                offset := add(0x1000, account)
+            }
+            function approvallForAllStorageAccess(approver,approved) -> offset {
+                offset := accountToStorageOffset(approver)
+                mstore(0, offset)
+                mstore(0x20, approved)
+                offset := keccak256(0, 0x40)
+            }
+
             /* -------- storage access ---------- */
 
             function owner() -> o {
@@ -57,11 +130,24 @@ object "ERC1155"{
                 bal := sload(accountToStorageOffset(account))
             }
 
-            /* -------- storage layout ---------- */
-            function ownerPos() -> p { p := 0 }
-            function totalSupplyPos() -> p { p := 1 }
-            function accountToStorageOffset(account) -> offset {
-                offset := add(0x1000, account)
+            function addToBalance(account, amount) {
+                let offset := accountToStorageOffset(account)
+                sstore(offset, safeAdd(sload(offset), amount))
+            }
+            function deductFromBalance(account, amount) {
+                let offset := accountToStorageOffset(account)
+                let bal := sload(offset)
+                require(lte(amount, bal))
+                sstore(offset, sub(bal, amount))
+            }
+
+            //mapping(address => mapping(address => bool)) public isApprovedForAll;
+            function isApprovedForAll(approver,approved) -> isApproved {
+                isApproved := sload(approvallForAllStorageAccess(approver,approved))
+            }
+
+            function setApprovalForAll(operator,approved,isApproved){
+                sstore(approvallForAllStorageAccess(operator,approved),isApproved)
             }
 
 
@@ -78,6 +164,7 @@ object "ERC1155"{
             }
             
             function decodeAsUint(offset) -> v {
+                // 4bytes sig + 32bytes
                 let pos := add(4, mul(offset, 0x20))
                 if lt(calldatasize(), add(pos, 0x20)) {
                     revert(0, 0)
