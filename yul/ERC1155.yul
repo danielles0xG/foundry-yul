@@ -21,7 +21,7 @@ object "ERC1155"{
 
            
             switch selector() 
-            case 0xf242432a { // safeTransferFrom(address,address,uint256,uint256,bytes)                 let to := decodeAsAddress(1)
+            case 0x0febdd49 /* function safeTransferFrom(address from, address to, uint256 id, uint256 amount) */ {
 
                 let from := decodeAsAddress(0)
                 // check that msg.sender is allowed to transfer `from`'s tokens
@@ -37,8 +37,6 @@ object "ERC1155"{
 
                 _safeTransferFrom(from, to, id, amount)
 
- 
-     
                 /**
                     STATICALL Stack input
                         gas: amount of gas to send to the sub context to execute. The gas that is not used by the sub context is returned to this one.
@@ -48,7 +46,8 @@ object "ERC1155"{
                         retOffset: byte offset in the memory in bytes, where to store the return data of the sub context.
                         retSize: byte size to copy (size of the return data).
                 */
-                mstore(getMemPtr(),0xf23a6e61) 
+                let interface := 0xf23a6e61
+                mstore(getMemPtr(),interface) 
                 // construct calldata of onERC1155Received(msg.sender, from, id, amount, data)
                 let success := staticcall(gas(), to, getMemPtr(), 0x100, 0x00, 0x20)
                 require(success)
@@ -67,25 +66,31 @@ object "ERC1155"{
                 returnTrue()
             }
 
-            // safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)
-            case 0x2eb2c2d6 {
+            case 0xfba0ee64 /* function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts) */ {
                 let from := decodeAsAddress(0)
+                // are we allowed to transfer
+                require(or(eq(from, caller()), _isApprovedForAll(from, caller())))
+
                 let to := decodeAsAddress(1)
                 let posIds := decodeAsUint(2)
                 let posAmounts := decodeAsUint(3)
-                require(or(eq(from, caller()), isApprovedForAll(from, caller())))
+
                 let lenIds := decodeAsUint(div(posIds, 0x20))
 
+                // then add the balance of each (account, id) requested up to `lenAccounts`
                 for { let i := 0 } lt(i, lenIds) { i:= add(i, 1) }
                 {
                     let ithId := decodeAsUint(_getArrayElementSlot(posIds, i))
                     let ithAmount := decodeAsAddress(_getArrayElementSlot(posAmounts, i))
                     
-                    transferFrom(from, to, ithId, ithAmount)
+                    _safeTransferFrom(from, to, ithId, ithAmount)
                 }
 
-            }
 
+                emitTransferBatch(caller(), from, to, posIds, posAmounts)
+
+                returnNothing()
+            }
             case 0x70a08231 { // balanceOf(address)  
                 returnUint(balanceOf(decodeAsAddress(0)))
             }
@@ -133,6 +138,9 @@ object "ERC1155"{
                 offset := keccak256(0, 0x40)
             }
 
+            function returnNothing(){
+                return(0,0)
+            }
             /* -------- storage access ---------- */
 
             function owner() -> o {
@@ -274,6 +282,10 @@ object "ERC1155"{
                 r := add(a, b)
                 if or(lt(r, a), lt(r, b)) { revert(0, 0) }
             }
+            function safeSub(a, b) -> r {
+                r := sub(a, b)
+                if gt(r, a) { revert(0, 0) }
+            }
             function calledByOwner() -> cbo {
                 cbo := eq(owner(), caller())
             }
@@ -284,12 +296,32 @@ object "ERC1155"{
                 if iszero(condition) { revert(0, 0) }
             }
 
+            function decodeAsSelector(value) -> sel {
+                sel := div(value, 0x100000000000000000000000000000000000000000000000000000000)
+            }
+
+            function _isApprovedForAll(account, operator) -> approved {
+                approved := sload(_getOperatorApprovalSlot(account, operator))
+            }
+
             function _getArrayElementSlot(posArr, i) -> calldataSlotOffset {
                 // We're asking: how many 32-byte chunks into the calldata does this array's ith element lie
-                // the array itself starts at posArra (starts meaning: that is where the pointer to the length of the array is stored)
+                // the array itself at posArra (starts meaning: that is where the pointer to the length of the array is stored)
                 let startingOffset := div(safeAdd(posArr, 0x20), 0x20)
                 calldataSlotOffset := safeAdd(startingOffset, i)
             }
+
+            /// @dev retrieve the storage slot where approval information is stored
+            /// @dev mapping(address => mapping(address => bool)) private _operatorApprovals;
+            function _getOperatorApprovalSlot(account, operator) -> slot {
+                // key = <operatorApprovalSlot><owner><operator>
+                // slot = keccak256(key)
+                mstore(0x00, operatorApprovalSlot())
+                mstore(0x20, account)
+                mstore(0x40, operator)
+                slot := keccak256(0x00, 0x60)
+            }
+
         }
     }
 }
