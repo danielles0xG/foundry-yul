@@ -1,7 +1,9 @@
 object "ERC1155"{
     code {
-        // Store owner in slot zero
-        sstore(0, caller())
+        sstore(0, caller())// Store owner in slot zero
+        sstore(3,0x22) // length of uri 34
+        sstore(add(3,1),0x68747470733A2F2F6F70656E7365612F7B69647D2E6A73) // hex of https://opensea/{id}.js
+        sstore(add(3,2),0x6f6e000000000000000000000000000000000000000000000000000000000000)
 
         // Deploy
         datacopy(0, dataoffset("runtime"), datasize("runtime"))
@@ -11,6 +13,12 @@ object "ERC1155"{
     object "runtime" {
         code {
             require(iszero(callvalue())) // msg.value == 0
+
+            function ownerSlot() -> p { p := 0 }
+            function balanceSlot() -> p { p := 1 }
+            function operatorApprovalSlot() -> p { p := 2 }
+            function uriLengthSlot() -> p { p := 3 }  // URI (store length of string in this slot)
+
            
             switch selector() 
             case 0xf242432a { // safeTransferFrom(address,address,uint256,uint256,bytes)  
@@ -46,7 +54,7 @@ object "ERC1155"{
                 mstore(0x7c,decodeAsUint(3))     // amount
                 mstore(0xa0,decodeAsUint(4))    // bytes
                 // construct calldata of onERC1155Received(msg.sender, from, id, amount, data)
-                require(eq(call(gas(), caller(), 0, 0, 0xa0, 0, 0),0)) // how to read msg bytes 0xf23a6e61 ?))
+                require(eq(staticall(gas(), caller(), 0, 0, 0xa0, 0, 0),0)) // how to read msg bytes 0xf23a6e61 ?))
                 returnTrue()
             }
 
@@ -213,8 +221,16 @@ object "ERC1155"{
                 mstore(0, nonIndexed)
                 log3(0, 0x20, signatureHash,indexed1,indexed2)
             }
+            
+            /* ---------- memroy pointers ---------- */
+            function memPtrPos() -> p { p := 0x60 } // where is the memory pointer itself stored in memory
+            function getMemPtr() -> p { p := mload(memPtrPos()) }
+            function setMemPtr(v) { mstore(memPtrPos(), v) }
+            function incrPtr() { mstore(memPtrPos(), safeAdd(getMemPtr(), 0x20)) } // ptr++
+
 
             /* ---------- utility functions ---------- */
+            
             function lte(a, b) -> r {
                 r := iszero(gt(a, b))
             }
@@ -233,6 +249,13 @@ object "ERC1155"{
             }
             function require(condition) {
                 if iszero(condition) { revert(0, 0) }
+            }
+
+            function _getArrayElementSlot(posArr, i) -> calldataSlotOffset {
+                // We're asking: how many 32-byte chunks into the calldata does this array's ith element lie
+                // the array itself starts at posArra (starts meaning: that is where the pointer to the length of the array is stored)
+                let startingOffset := div(safeAdd(posArr, 0x20), 0x20)
+                calldataSlotOffset := safeAdd(startingOffset, i)
             }
         }
     }
