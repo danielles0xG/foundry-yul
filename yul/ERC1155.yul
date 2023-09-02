@@ -21,11 +21,42 @@ object "ERC1155"{
 
            
             switch selector() 
-            case 0xf242432a { // safeTransferFrom(address,address,uint256,uint256,bytes)  
-                require(eq(caller(),decodeAsAddress(0))) 
-                require(iszero(isApprovedForAll(decodeAsAddress(0),decodeAsAddress(1))))
+            case 0xf242432a { // safeTransferFrom(address,address,uint256,uint256,bytes)                 let to := decodeAsAddress(1)
 
-                transferFrom(decodeAsAddress(0), decodeAsAddress(1), decodeAsUint(2))
+                let from := decodeAsAddress(0)
+                // check that msg.sender is allowed to transfer `from`'s tokens
+                // (which they are if msg.sender == from of course)
+                require(or(eq(from, caller()), _isApprovedForAll(from, caller())))
+
+                let to := decodeAsAddress(1)
+                require(gte(extcodesize(to),0))
+                revertIfZeroAddress(to)
+
+                let id := decodeAsUint(2)
+                let amount := decodeAsUint(3)
+
+                _safeTransferFrom(from, to, id, amount)
+
+ 
+     
+                /**
+                    STATICALL Stack input
+                        gas: amount of gas to send to the sub context to execute. The gas that is not used by the sub context is returned to this one.
+                        address: the account which context to execute.
+                        argsOffset: byte offset in the memory in bytes, the calldata of the sub context.
+                        argsSize: byte size to copy (size of the calldata).
+                        retOffset: byte offset in the memory in bytes, where to store the return data of the sub context.
+                        retSize: byte size to copy (size of the return data).
+                */
+                mstore(getMemPtr(),0xf23a6e61) 
+                // construct calldata of onERC1155Received(msg.sender, from, id, amount, data)
+                let success := staticcall(gas(), to, getMemPtr(), 0x100, 0x00, 0x20)
+                require(success)
+                // read the reponse like a function signature
+                let response := decodeAsSelector(mload(0x00))
+                let requiredInterface := decodeAsSelector(interface)
+                require(eq(response, requiredInterface))
+                
                 emitTransferSingle(
                     caller(),
                     decodeAsAddress(0),
@@ -33,28 +64,6 @@ object "ERC1155"{
                     decodeAsUint(2),
                     decodeAsUint(3)
                 )
-                require(gte(extcodesize(decodeAsAddress(1)),0))
-                revertIfZeroAddress(decodeAsAddress(1))
-                
-                /**
-                    CALL
-                    Stack input
-                        gas: amount of gas to send to the sub context to execute. The gas that is not used by the sub context is returned to this one.
-                        address: the account which context to execute.
-                        value: value in wei to send to the account.
-                        argsOffset: byte offset in the memory in bytes, the calldata of the sub context.
-                        argsSize: byte size to copy (size of the calldata).
-                        retOffset: byte offset in the memory in bytes, where to store the return data of the sub context.
-                        retSize: byte size to copy (size of the return data).
-                */
-                mstore(0x0,0xf23a6e61)
-                mstore(0x20,caller())            // msg.sender
-                mstore(0x40,decodeAsAddress(0))  // from
-                mstore(0x60,decodeAsUint(2))     // id
-                mstore(0x7c,decodeAsUint(3))     // amount
-                mstore(0xa0,decodeAsUint(4))    // bytes
-                // construct calldata of onERC1155Received(msg.sender, from, id, amount, data)
-                require(eq(staticall(gas(), caller(), 0, 0, 0xa0, 0, 0),0)) // how to read msg bytes 0xf23a6e61 ?))
                 returnTrue()
             }
 
@@ -156,6 +165,30 @@ object "ERC1155"{
 
             function setApprovalForAll(operator,approved,isApproved){
                 sstore(approvallForAllStorageAccess(operator,approved),isApproved)
+            }
+
+            function _safeTransferFrom(from, to, id, amount) {
+                let fromSlot := _getBalanceSlot(from, id)
+                let toSlot := _getBalanceSlot(to, id)
+                
+                // from = from - amount
+                let fromOld := sload(fromSlot)
+                let fromNew := safeSub(fromOld, amount)
+                sstore(fromSlot, fromNew)
+
+                // to = to + amount
+                let toOld := sload(toSlot)
+                let toNew := safeAdd(toOld, amount)
+                sstore(toSlot, toNew)
+            }
+
+            function _getBalanceSlot(_address, id) -> slot {
+                // key = <balanceSlot><to><id>
+                // slot = keccak256(key)
+                mstore(0x00, balanceSlot()) // use scratch space for hashing
+                mstore(0x20, _address)
+                mstore(0x40, id)
+                slot := keccak256(0x00, 0x60)
             }
 
 
